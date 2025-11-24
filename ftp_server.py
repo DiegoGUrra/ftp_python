@@ -84,8 +84,8 @@ class FTPServer:
                     if self.running:
                         print(f"Error: {e}")
                     break
-                with self.lock:
-                    self.clients[addr] = conn
+                # with self.lock:
+                    # self.clients[addr] = conn
                 print(f"Se conectó {addr}, en path: {self.root_dir}")
                 threading.Thread(
                     target=self.handle_client, args=(conn, addr), daemon=True
@@ -105,7 +105,7 @@ class FTPServer:
         with self.lock:
             for conn in self.clients.values():
                 conn.close()
-            self.clients.clear()
+        self.clients.clear()
         try:
             if self.server_socket is not None:
                 self.server_socket.close()
@@ -114,13 +114,13 @@ class FTPServer:
             print("OS error")
 
     def handle_client(self, conn, addr):
-        uuid = self.handle_new_conn(conn, addr)
+        uuid = self.handle_new_conn( addr)
         connected, username = self.handle_login(conn)
+        curr_dir = self.root_dir
         if connected:
             self.login_client(uuid, username)
         while connected:
             data = self.recv_message(conn)
-            curr_dir = self.root_dir
             ip, _ = addr
             if not data:
                 print(f"received: {data}")
@@ -148,32 +148,38 @@ class FTPServer:
     def console(self):
         while self.running:
             cmd = input("ftp> ")
-            if cmd.lower() == "list":
-                print("Clientes: ", list(self.clients.keys()))
-            elif cmd.startswith("kick "):
-                client_ip = cmd.split(" ")[1]
+            if cmd.upper() == "LIST":
                 with self.lock:
-                    for addr, conn in list(self.clients.items()):
-                        if client_ip in str(addr):
-                            self.handle_quit(conn)
-                            self.clients.pop(addr, None)
-                            print(f"Expulsado el cliente {addr}")
-                            break
+                    # print("DISCONNECT SELF:", id(self))
+                    # print("DISCONNECT CLIENTS:", id(self.clients))
+                    for client_id, client_info in self.clients.items():
+                        print(f"ID: {client_id}, Addr: {client_info['addr']}, User: {client_info['user']}")
+            elif cmd.startswith("kick "):
+                client_id = cmd.split(" ")[1]
+                with self.lock:
+                    print(self.clients)
+                    client = self.clients.pop(int( client_id ), None)
+                    print(f"Expulsado el cliente {client}")
+                    # for addr, conn in list(self.clients.items()):
+                    #     if client_ip in str(addr):
+                    #         self.handle_quit(conn)
+                    #         self.clients.pop(addr, None)
+                    #         print(f"Expulsado el cliente {addr}")
+                    #         break
             elif cmd == "exit":
                 self.shutdown()
                 break
             else:
-                print("Comandos: list, kick <ip> y exit")
+                print("Comandos: list, kick <id> y exit")
         print("Terminó consola")
 
-    def handle_new_conn(self, conn, addr):
+    def handle_new_conn(self, addr):
         """
         Creates a clients, with a unique id
         """
-        session_id = str(uuid.uuid4())
+        session_id = len( self.clients )
         with self.lock:
             self.clients[session_id] = {
-                "conn": conn,
                 "addr": addr,
                 "user": None,
                 "logged": False,
@@ -182,7 +188,7 @@ class FTPServer:
 
     def login_client(self, session_id, username):
         """
-        Adds usenrmae and logged into a client
+        Adds username and logged into a client
         """
         with self.lock:
             self.clients[session_id]["user"] = username
@@ -193,9 +199,14 @@ class FTPServer:
         Disconnects a client
         """
         with self.lock:
+            # print("DISCONNECT SELF:", id(self))
+            # print("DISCONNECT CLIENTS:", id(self.clients))
+            print({"clients": self.clients})
             client = self.clients.pop(session_id, None)
+            print({ "client":client })
             if client:
                 print(f"Sesión {session_id} se ha desconectado")
+            print({"clients": self.clients})
 
     def handle_login(self, conn):
         """
