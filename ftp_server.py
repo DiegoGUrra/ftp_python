@@ -315,14 +315,12 @@ class FTPServer:
             data_socket.listen(1)
             data_socket.settimeout(10)
             print(f"Escuchando en {DATA_PORT}")
-            # conn.sendall(f"PORT {DATA_PORT}\r\n".encode())
-            # same as handle_download
             data_conn, addr = data_socket.accept()
             if ip != addr[0]:
                 return
             print(f"cliente {ip}= {addr}")
             full_path = path.join(curr_dir, filename)
-            with data_conn, open(filename, "wb") as f:
+            with data_conn, open(full_path, "wb") as f:
                 received = 0
                 while received < size:
                     chunk = data_conn.recv(BUFFER_SIZE)
