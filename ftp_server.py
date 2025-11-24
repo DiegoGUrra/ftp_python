@@ -150,22 +150,13 @@ class FTPServer:
             cmd = input("ftp> ")
             if cmd.upper() == "LIST":
                 with self.lock:
-                    # print("DISCONNECT SELF:", id(self))
-                    # print("DISCONNECT CLIENTS:", id(self.clients))
                     for client_id, client_info in self.clients.items():
                         print(f"ID: {client_id}, Addr: {client_info['addr']}, User: {client_info['user']}")
             elif cmd.startswith("kick "):
                 client_id = cmd.split(" ")[1]
                 with self.lock:
-                    print(self.clients)
                     client = self.clients.pop(int( client_id ), None)
                     print(f"Expulsado el cliente {client}")
-                    # for addr, conn in list(self.clients.items()):
-                    #     if client_ip in str(addr):
-                    #         self.handle_quit(conn)
-                    #         self.clients.pop(addr, None)
-                    #         print(f"Expulsado el cliente {addr}")
-                    #         break
             elif cmd == "exit":
                 self.shutdown()
                 break
@@ -213,10 +204,9 @@ class FTPServer:
         Handles login
         """
         tries = 0
+        self.send_message(conn, "HELLO")
         while tries < LOGIN_TRIES:
-            self.send_message(conn, "HELLO")
             username = conn.recv(BUFFER_SIZE).decode().strip()
-            print(username)
             if username in users:
                 self.send_message(conn, "USER_OK")
                 password = conn.recv(BUFFER_SIZE).decode().strip()
@@ -442,21 +432,22 @@ class Client():
         """
         Client login
         """
-        print("client login")
         data = socket.recv(BUFFER_SIZE)
         if not data:
             print("No se ha encontrado el servidor")
             return False
         try:
             message = json.loads(data.decode())
-            user = input("USUARIO: ")
-            socket.sendall(user.encode())
+            print(f"{message['code']} - {message['message']}")
             while message["code"] != 421:
-                print("hello world")
+                user = input("USUARIO: ")
+                if not user:
+                    continue
+                socket.sendall(user.encode())
                 data = socket.recv(BUFFER_SIZE)
                 message = json.loads(data.decode())
+                print(f"{message['code']} - {message['message']}")
                 if message["code"] == 331:
-                    print(f"{message['code']} - {message['message']}")
                     pwd = getpass(prompt="PASS: ")
                     socket.sendall(pwd.encode())
                     data = socket.recv(BUFFER_SIZE)
@@ -464,6 +455,7 @@ class Client():
                     print(f"{message['code']} - {message['message']}")
                     if message["code"] == 230:
                         return True
+            print("me sali")
         except json.JSONDecodeError:
             print(data.decode())
             return False
