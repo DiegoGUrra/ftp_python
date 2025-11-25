@@ -101,10 +101,12 @@ class FTPServer:
             return
         print("Cerrando Servidor...")
         self.running = False
-        print(f"is running console? {self.running}")
         with self.lock:
-            for conn in self.clients.values():
-                conn.close()
+            for _, conn in self.clients.items():
+                try:
+                    conn.close()
+                except:
+                    pass
         self.clients.clear()
         try:
             if self.server_socket is not None:
@@ -114,23 +116,27 @@ class FTPServer:
             print("OS error")
 
     def handle_client(self, conn, addr):
-        uuid = self.handle_new_conn( addr)
-        connected, username = self.handle_login(conn)
+        uuid = self.handle_new_conn( addr, conn)
+        username = self.handle_login(conn)
         curr_dir = self.root_dir
-        if connected:
+        if username:
             self.login_client(uuid, username)
-        while connected:
+        while True:
             data = self.recv_message(conn)
+            client = self.clients.get(uuid)
+            if not client or not client.get("logged", False):
+                break
             ip, _ = addr
             if not data:
-                print(f"received: {data}")
                 break
             cmd = data.get("cmd")
             params = data.get("params")
             size = data.get("size")
-            print("Received: ", data)
             if cmd.upper() == "SALIR":
-                connected = False
+                with self.lock:
+                    client = self.clients.get(uuid)
+                    if client:
+                        client["logged"] = False
             elif cmd.upper() == "LISTAR":
                 self.handle_ls(conn, ip, curr_dir)
             elif cmd.upper() == "DESCARGAR":
@@ -139,7 +145,6 @@ class FTPServer:
                 self.handle_upload(conn, params[0], size, curr_dir, ip)
             elif cmd.upper() == "CD":
                 curr_dir = self.handle_cd(conn, params[0], curr_dir)
-                print(f"current dir: {curr_dir}")
             else:
                 conn.send(json.dumps(FTP_MESSAGES["COMMAND_UNKNOWN"]).encode())
         self.handle_quit(conn)
@@ -164,7 +169,7 @@ class FTPServer:
                 print("Comandos: list, kick <id> y exit")
         print("Terminó consola")
 
-    def handle_new_conn(self, addr):
+    def handle_new_conn(self, addr, conn):
         """
         Creates a clients, with a unique id
         """
@@ -174,6 +179,7 @@ class FTPServer:
                 "addr": addr,
                 "user": None,
                 "logged": False,
+                "conn": conn
             }
         return session_id
 
@@ -192,12 +198,9 @@ class FTPServer:
         with self.lock:
             # print("DISCONNECT SELF:", id(self))
             # print("DISCONNECT CLIENTS:", id(self.clients))
-            print({"clients": self.clients})
             client = self.clients.pop(session_id, None)
-            print({ "client":client })
             if client:
-                print(f"Sesión {session_id} se ha desconectado")
-            print({"clients": self.clients})
+                print(f"Cliente {session_id} se ha desconectado")
 
     def handle_login(self, conn):
         """
@@ -212,12 +215,12 @@ class FTPServer:
                 password = conn.recv(BUFFER_SIZE).decode().strip()
                 if (username, password) in users.items():
                     self.send_message(conn, "LOGIN_SUCCESS")
-                    return True, username
+                    return username
             self.send_message(conn, "LOGIN_FAIL")
             tries += 1
         conn.send(json.dumps(FTP_MESSAGES["MAX_ATTEMPTS"]).encode())
         self.send_message(conn, "MAX_ATTEMTPS")
-        return False, None
+        return None
 
     def handle_ls(self, conn, ip, curr_path="."):
         """
@@ -233,7 +236,6 @@ class FTPServer:
             parsed_items = {i: key for i, key in enumerate(items)}
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as data_socket:
                 data_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                print(f"{data_socket}")
                 data_socket.bind((HOST, DATA_PORT))
                 data_socket.listen(1)
                 data_socket.settimeout(10)
@@ -243,7 +245,6 @@ class FTPServer:
                 data_conn, addr = data_socket.accept()
                 if ip != addr[0]:
                     return
-                print(f"cliente {addr}")
                 with data_conn:
                     print(f"IP: {addr}, PORT: {DATA_PORT}")
                     data_conn.sendall(json.dumps(parsed_items).encode())
@@ -266,20 +267,11 @@ class FTPServer:
             self.send_message(conn, "FILE_NOT_FOUND")
             return
         try:
-            print(
-                {
-                    "ADDRESS": ip,
-                    "CURR_ADDR": curr_dir,
-                    "FILENAME": filename,
-                    "FULL_PATH": full_path,
-                }
-            )
             size = path.getsize(full_path)
             self.send_message(
                 conn, "READY_FOR_DATA", **{"size": size, "port": DATA_PORT}
             )
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as data_socket:
-                print(f"{data_socket}")
                 data_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 data_socket.bind((HOST, DATA_PORT))
                 data_socket.listen(1)
@@ -288,10 +280,8 @@ class FTPServer:
                 # conn.sendall(f"PORT {DATA_PORT}\r\n".encode())
                 data_conn, addr = data_socket.accept()
                 # check if break is a correct out statement, prob need something more thoughtful to exit or retry the conn
-                print(f"cliente {ip}= {addr}")
                 if ip != addr[0]:
                     return
-                print(f"cliente {addr}")
                 with data_conn, open(full_path, "rb") as f:
                     while chunk := f.read(BUFFER_SIZE):
                         data_conn.sendall(chunk)
@@ -309,16 +299,13 @@ class FTPServer:
         """
         self.send_message(conn, "READY_FOR_DATA", **{"size": size, "port": DATA_PORT})
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as data_socket:
-            print(f"{data_socket}")
             data_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             data_socket.bind((HOST, DATA_PORT))
             data_socket.listen(1)
             data_socket.settimeout(10)
-            print(f"Escuchando en {DATA_PORT}")
             data_conn, addr = data_socket.accept()
             if ip != addr[0]:
                 return
-            print(f"cliente {ip}= {addr}")
             full_path = path.join(curr_dir, filename)
             with data_conn, open(full_path, "wb") as f:
                 received = 0
@@ -388,7 +375,6 @@ class Client():
                 conn_status = self.login(s)
                 self.init_autocomplete()
                 while conn_status:
-                    print(conn_status)
                     # COMMAND BLOCK
                     full_cmd = input("ftp> ").strip()
                     if not full_cmd:
@@ -405,9 +391,6 @@ class Client():
                         conn_status = False
                     elif message["code"] == 500:
                         ...
-                    elif message["code"] == 200:
-                        print("it worked")
-                    # elif message["code"] == 226:
                     elif message["code"] == 150:
                         if cmd.upper() == "LISTAR":
                             self.ls(s, port)
@@ -415,9 +398,6 @@ class Client():
                             self.download(s, message["size"], params[0], port)
                         elif cmd.upper() == "SUBIR":
                             self.upload(s, params[0], port)
-                    # elif message["code"] == 250:
-                    # if cmd.upper() == "CD":
-                    # cd(s,params[0], port)
                 self.quit(s)
             except KeyboardInterrupt as e:
                 print(f"Cerrando conexion: {e}")
@@ -453,7 +433,6 @@ class Client():
                     print(f"{message['code']} - {message['message']}")
                     if message["code"] == 230:
                         return True
-            print("me sali")
         except json.JSONDecodeError:
             print(data.decode())
             return False
@@ -481,11 +460,9 @@ class Client():
         """
         Show listed files and dirs
         """
-        print(f"{port}!!")
         print(f"Intentando conexión en {TARGET} - {port}")
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as data_socket:
             data_socket.connect((TARGET, port))
-            print("Conectado!")
             data_bytes = b""
             while True:
                 chunk = data_socket.recv(BUFFER_SIZE)
@@ -514,13 +491,12 @@ class Client():
             filename, "rb"
         ) as f:
             data_socket.connect((TARGET, port))
-            # print("Conectado!")
             with data_socket, open(filename, "rb") as f:
                 while chunk := f.read(BUFFER_SIZE):
                     data_socket.sendall(chunk)
         message = self.recv_message(s)
         if message["code"] == 226:
-            print("Hola")
+            print("\nArchivo Subido\n")
 
 
     def download(self, s, size, filename, port):
@@ -533,7 +509,6 @@ class Client():
             filename, "wb"
         ) as f:
             data_socket.connect((TARGET, port))
-            print("Conectado!")
             received = 0
             while received < size:
                 chunk = data_socket.recv(BUFFER_SIZE)
@@ -552,7 +527,7 @@ class Client():
         s.close()
         sys.exit(0)
 
-    def cd(self, s, dir, port):
+    def cd(self, s):
         """
         Changes Dir Client side
         """
@@ -609,7 +584,6 @@ if __name__ == "__main__":
     HOST = args.host is not None if args.host else HOST
     CONTROL_PORT = args.port is not None if args.port else CONTROL_PORT
     FTP_ROOT = path.abspath(path.curdir)
-    print(args.target_ip, args.host, args.port)
     print(TARGET, HOST, CONTROL_PORT)
     if args.mode == "server":
         ftp_server = FTPServer(HOST, CONTROL_PORT, DATA_PORT, FTP_ROOT)
