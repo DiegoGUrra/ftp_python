@@ -12,7 +12,6 @@ import socket
 import sys
 from getpass import getpass
 import threading
-import uuid
 
 CONTROL_PORT = 5000
 DATA_PORT = 5050
@@ -22,7 +21,7 @@ BUFFER_SIZE = 1024
 LOGIN_TRIES = 3
 commands = ["AYUDA", "LISTAR", "DESCARGAR", "SUBIR", "SALIR", "CD"]
 users = {"diego": "pass", "anon": "pass"}
-FTP_ROOT = "."
+FTP_ROOT = path.curdir
 FTP_MESSAGES = {
     "HELLO": {"code": 220, "message": "Bienvenido al servidor FTP"},
     "USER_OK": {"code": 331, "message": "Usuario correcto, ingrese la clave"},
@@ -60,7 +59,7 @@ class FTPServer:
         self.data_port = data_port
         self.running = False
         self.server_socket = None
-        self.root_dir = root_dir
+        self.root_dir = path.abspath(root_dir)
         self.clients = {}
         self.lock = threading.Lock()
 
@@ -331,7 +330,7 @@ class FTPServer:
         next_dir = path.abspath(path.join(curr_dir, dir))
         if not path.exists(next_dir):
             self.send_message(conn, "NOT_DIR")
-        elif path.commonpath([FTP_ROOT, next_dir]) != FTP_ROOT:
+        elif path.commonpath([self.root_dir, next_dir]) != self.root_dir:
             self.send_message(conn, "ACCESS_DENIED")
         elif path.isdir(next_dir):
             self.send_message(conn, "DIR_CHANGED")
@@ -460,9 +459,8 @@ class Client():
         """
         Show listed files and dirs
         """
-        print(f"Intentando conexión en {TARGET} - {port}")
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as data_socket:
-            data_socket.connect((TARGET, port))
+            data_socket.connect((self.target, port))
             data_bytes = b""
             while True:
                 chunk = data_socket.recv(BUFFER_SIZE)
@@ -471,6 +469,7 @@ class Client():
                 data_bytes += chunk
             data = json.loads(data_bytes.decode())
         message = self.recv_message(s)
+        print("\n\n")
         if message["code"] == 226:
             for e in data.values():
                 if e["isDir"]:
@@ -565,28 +564,25 @@ def help():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        prog="SOCKET CONNECTION",
-        description="This program connects thru sockets",
+        prog="Servidor FTP",
+        description="Servidor de ftp por socket",
     )
-    parser.add_argument("target_ip", help="target IP for conn")
-    parser.add_argument("-H", "--host", help="host IP for conn")
-    parser.add_argument("-p", "--port", help="Port for conn")
-    parser.add_argument("-v", "--verbose", action="store_true")
-    parser.add_argument(
-        "-m",
-        "--mode",
-        choices=["server", "client"],
-        required=True,
-        help="run in client or server mode",
-    )
+    subparsers = parser.add_subparsers(dest="mode", required=True)
+
+    server_parser = subparsers.add_parser("server", help="Corre el programa en modo servidor")
+    server_parser.add_argument("-H", "--host", default=HOST, help="IP de Host")
+    server_parser.add_argument("-C", "--control_port", type=int, default=CONTROL_PORT, help="Puerto de control")
+    server_parser.add_argument("-D", "--data_port", type=int, default=DATA_PORT, help="Puerto de data")
+    server_parser.add_argument("-R", "--root_dir", default=FTP_ROOT, help="raiz de directorio")
+
+    client_parser = subparsers.add_parser("client", help="Corre el programa en modo cliente")
+    client_parser.add_argument("target_ip", help="IP del servidor al cual conectarse")
+    client_parser.add_argument("-p", "--port", default=CONTROL_PORT, type=int,help="Puerto de control")
+
     args = parser.parse_args()
-    TARGET = args.target_ip
-    HOST = args.host is not None if args.host else HOST
-    CONTROL_PORT = args.port is not None if args.port else CONTROL_PORT
-    FTP_ROOT = path.abspath(path.curdir)
-    print(TARGET, HOST, CONTROL_PORT)
+
     if args.mode == "server":
-        ftp_server = FTPServer(HOST, CONTROL_PORT, DATA_PORT, FTP_ROOT)
+        ftp_server = FTPServer(args.host, args.control_port, args.data_port, args.root_dir)
         ftp_server.start()
     else:
-        client = Client(TARGET, CONTROL_PORT)
+        client = Client(args.target_ip, args.port)
