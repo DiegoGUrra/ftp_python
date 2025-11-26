@@ -20,7 +20,7 @@ HOST = "0.0.0.0"
 BUFFER_SIZE = 1024
 LOGIN_TRIES = 3
 commands = ["AYUDA", "LISTAR", "DESCARGAR", "SUBIR", "SALIR", "CD"]
-users = {"diego": "pass", "anon": "pass"}
+users = {"user": "pass", "anon": "pass"}
 FTP_ROOT = path.curdir
 FTP_MESSAGES = {
     "HELLO": {"code": 220, "message": "Bienvenido al servidor FTP"},
@@ -83,8 +83,6 @@ class FTPServer:
                     if self.running:
                         print(f"Error: {e}")
                     break
-                # with self.lock:
-                    # self.clients[addr] = conn
                 print(f"Se conectó {addr}, en path: {self.root_dir}")
                 threading.Thread(
                     target=self.handle_client, args=(conn, addr), daemon=True
