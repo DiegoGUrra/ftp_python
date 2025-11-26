@@ -480,8 +480,6 @@ class Client():
                 while chunk := f.read(BUFFER_SIZE):
                     data_socket.sendall(chunk)
         message = self.recv_message(s)
-        if message["code"] == 226:
-            print("\nArchivo Subido\n")
 
 
     def download(self, s, size, filename, port):
@@ -502,8 +500,6 @@ class Client():
                 f.write(chunk)
                 received += len(chunk)
         message = self.recv_message(s)
-        if message["code"] == 226:
-            print("\nArchivo Descargado\n")
 
     def quit(self, s):
         """
