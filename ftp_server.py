@@ -479,7 +479,7 @@ class Client():
             with data_socket, open(filename, "rb") as f:
                 while chunk := f.read(BUFFER_SIZE):
                     data_socket.sendall(chunk)
-        message = self.recv_message(s)
+        self.recv_message(s)
 
 
     def download(self, s, size, filename, port):
@@ -499,7 +499,7 @@ class Client():
                     break
                 f.write(chunk)
                 received += len(chunk)
-        message = self.recv_message(s)
+        self.recv_message(s)
 
     def quit(self, s):
         """
