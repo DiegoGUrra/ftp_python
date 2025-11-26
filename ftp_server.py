@@ -132,10 +132,7 @@ class FTPServer:
             params = data.get("params")
             size = data.get("size")
             if cmd.upper() == "SALIR":
-                with self.lock:
-                    client = self.clients.get(uuid)
-                    if client:
-                        client["logged"] = False
+                break
             elif cmd.upper() == "LISTAR":
                 self.handle_ls(conn, ip, curr_dir)
             elif cmd.upper() == "DESCARGAR":
@@ -225,7 +222,6 @@ class FTPServer:
         """
         List files in a dir
         """
-        # TODO: implement ip check
         try:
             items = []
             for item in listdir(curr_path):
@@ -235,7 +231,7 @@ class FTPServer:
             parsed_items = {i: key for i, key in enumerate(items)}
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as data_socket:
                 data_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                data_socket.bind((HOST, DATA_PORT))
+                data_socket.bind((self.host, DATA_PORT))
                 data_socket.listen(1)
                 data_socket.settimeout(10)
                 print(f"Escuchando en {DATA_PORT}")
@@ -268,14 +264,14 @@ class FTPServer:
         try:
             size = path.getsize(full_path)
             self.send_message(
-                conn, "READY_FOR_DATA", **{"size": size, "port": DATA_PORT}
+                conn, "READY_FOR_DATA", **{"size": size, "port": self.data_port}
             )
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as data_socket:
                 data_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                data_socket.bind((HOST, DATA_PORT))
+                data_socket.bind((self.host, self.data_port))
                 data_socket.listen(1)
                 data_socket.settimeout(10)
-                print(f"Escuchando en {DATA_PORT}")
+                print(f"Escuchando en {self.data_port}")
                 # conn.sendall(f"PORT {DATA_PORT}\r\n".encode())
                 data_conn, addr = data_socket.accept()
                 # check if break is a correct out statement, prob need something more thoughtful to exit or retry the conn
@@ -299,7 +295,7 @@ class FTPServer:
         self.send_message(conn, "READY_FOR_DATA", **{"size": size, "port": DATA_PORT})
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as data_socket:
             data_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            data_socket.bind((HOST, DATA_PORT))
+            data_socket.bind((self.host, DATA_PORT))
             data_socket.listen(1)
             data_socket.settimeout(10)
             data_conn, addr = data_socket.accept()
@@ -409,31 +405,21 @@ class Client():
         """
         Client login
         """
-        data = socket.recv(BUFFER_SIZE)
-        if not data:
-            print("No se ha encontrado el servidor")
-            return False
         try:
-            message = json.loads(data.decode())
-            print(f"{message['code']} - {message['message']}")
+            message = self.recv_message(socket)
             while message["code"] != 421:
                 user = input("USUARIO: ")
                 if not user:
                     continue
                 socket.sendall(user.encode())
-                data = socket.recv(BUFFER_SIZE)
-                message = json.loads(data.decode())
-                print(f"{message['code']} - {message['message']}")
+                message = self.recv_message(socket)
                 if message["code"] == 331:
                     pwd = getpass(prompt="PASS: ")
                     socket.sendall(pwd.encode())
-                    data = socket.recv(BUFFER_SIZE)
-                    message = json.loads(data.decode())
-                    print(f"{message['code']} - {message['message']}")
+                    message = self.recv_message(socket)
                     if message["code"] == 230:
                         return True
         except json.JSONDecodeError:
-            print(data.decode())
             return False
         return False
 
@@ -469,7 +455,7 @@ class Client():
                 data_bytes += chunk
             data = json.loads(data_bytes.decode())
         message = self.recv_message(s)
-        print("\n\n")
+        print("\n")
         if message["code"] == 226:
             for e in data.values():
                 if e["isDir"]:
@@ -485,11 +471,11 @@ class Client():
         if not path.isfile(filename):
             print(f"Archivo {filename} no encontrado")
             return
-        print(f"Intentando conexión en {TARGET} - {port}")
+        print(f"Intentando conexión en {self.target} - {port}")
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as data_socket, open(
             filename, "rb"
         ) as f:
-            data_socket.connect((TARGET, port))
+            data_socket.connect((self.target, port))
             with data_socket, open(filename, "rb") as f:
                 while chunk := f.read(BUFFER_SIZE):
                     data_socket.sendall(chunk)
@@ -503,11 +489,11 @@ class Client():
         Downloads a file
         """
         # port = int(s.recv(BUFFER_SIZE).decode().split(" ")[2])
-        print(f"Intentando conexión en {TARGET} - {port}")
+        print(f"Intentando conexión en {self.target} - {port}")
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as data_socket, open(
             filename, "wb"
         ) as f:
-            data_socket.connect((TARGET, port))
+            data_socket.connect((self.target, port))
             received = 0
             while received < size:
                 chunk = data_socket.recv(BUFFER_SIZE)
@@ -539,7 +525,8 @@ class Client():
         """
         data = s.recv(BUFFER_SIZE)
         message = json.loads(data.decode())
-        print(f"{message['code']} - {message['message']}")
+        color = bcolors['FAIL'] if message['code']>=500 or message['code'] == 421  else bcolors['OKGREEN']
+        print(f"{color}{message['code']} - {message['message']}{bcolors['ENDC']}")
         return message
 
     def init_autocomplete(self):
