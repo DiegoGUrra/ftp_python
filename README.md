@@ -1,4 +1,4 @@
-# FTP Server (Proyecto Simple)
+# FTP Server
 
 Servidor y cliente FTP básico implementado en Python usando sockets, con soporte para múltiples clientes mediante threads, consola administrativa y transferencia de archivos por un canal de datos separado.
 
@@ -27,3 +27,8 @@ python3 ftp_client.py client <server-ip>
 ## Propósito
 
 Proyecto educativo para practicar uso de sockets, comunicación por códigos en Python.
+
+## Más información
+
+Para una descripción más detallada del proyecto:
+https://diegogurra.github.io/portafolio/ftp_server
